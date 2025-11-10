@@ -11,23 +11,25 @@ from pathlib import Path
 
 
 def get_svg_dimensions(svg_path):
-    """Extract width and height from an SVG file."""
+    """Extract width and height from an SVG file, preferring viewBox."""
     try:
         tree = ET.parse(svg_path)
         root = tree.getroot()
 
-        # Remove namespace if present
-        if '}' in root.tag:
-            namespace = root.tag.split('}')[0] + '}'
-        else:
-            namespace = ''
+        # Try to get viewBox first (more reliable)
+        viewbox = root.get('viewBox')
+        if viewbox:
+            parts = viewbox.split()
+            if len(parts) == 4:
+                return float(parts[2]), float(parts[3])
 
+        # Fallback to width/height attributes
         width = root.get('width', '100')
         height = root.get('height', '100')
 
-        # Remove units if present (px, pt, etc.)
-        width = ''.join(filter(lambda x: x.isdigit() or x == '.', width))
-        height = ''.join(filter(lambda x: x.isdigit() or x == '.', height))
+        # Remove units if present (px, pt, etc.) and percentage
+        width = ''.join(filter(lambda x: x.isdigit() or x == '.' or x == '-', width))
+        height = ''.join(filter(lambda x: x.isdigit() or x == '.' or x == '-', height))
 
         return float(width) if width else 100.0, float(height) if height else 100.0
     except Exception as e:
@@ -61,9 +63,6 @@ def create_svg_grid(svg_files, output_file, rows=2, cols=4, cell_width=200, cell
      width="{total_width}" height="{total_height}" viewBox="0 0 {total_width} {total_height}">
 '''
 
-    # Add a background
-    svg_content += f'  <rect width="{total_width}" height="{total_height}" fill="#f0f0f0"/>\n\n'
-
     # Place each SVG in the grid
     for idx, svg_file in enumerate(svg_files):
         if idx >= rows * cols:
@@ -86,10 +85,9 @@ def create_svg_grid(svg_files, output_file, rows=2, cols=4, cell_width=200, cell
             # Get original dimensions for scaling
             orig_width, orig_height = get_svg_dimensions(svg_file)
 
-            # Calculate scale to fit in cell (with some margin)
-            margin = 10
-            scale_x = (cell_width - 2 * margin) / orig_width if orig_width > 0 else 1
-            scale_y = (cell_height - 2 * margin) / orig_height if orig_height > 0 else 1
+            # Calculate scale to fit in cell perfectly
+            scale_x = cell_width / orig_width if orig_width > 0 else 1
+            scale_y = cell_height / orig_height if orig_height > 0 else 1
             scale = min(scale_x, scale_y)
 
             # Center the SVG in the cell
@@ -97,9 +95,6 @@ def create_svg_grid(svg_files, output_file, rows=2, cols=4, cell_width=200, cell
             scaled_height = orig_height * scale
             offset_x = x + (cell_width - scaled_width) / 2
             offset_y = y + (cell_height - scaled_height) / 2
-
-            # Add a cell background
-            svg_content += f'  <rect x="{x}" y="{y}" width="{cell_width}" height="{cell_height}" fill="white" stroke="#ccc" stroke-width="1"/>\n'
 
             # Add the SVG as a group with transform
             svg_content += f'  <g transform="translate({offset_x}, {offset_y}) scale({scale})">\n'
@@ -110,16 +105,11 @@ def create_svg_grid(svg_files, output_file, rows=2, cols=4, cell_width=200, cell
 
             svg_content += '  </g>\n\n'
 
-            # Add filename label
-            filename = os.path.basename(svg_file)
-            text_y = y + cell_height - 5
-            svg_content += f'  <text x="{x + cell_width/2}" y="{text_y}" text-anchor="middle" font-size="10" fill="#666">{filename}</text>\n\n'
-
         except Exception as e:
             print(f"Error processing {svg_file}: {e}")
-            # Add error placeholder
-            svg_content += f'  <rect x="{x}" y="{y}" width="{cell_width}" height="{cell_height}" fill="#ffcccc" stroke="red"/>\n'
-            svg_content += f'  <text x="{x + cell_width/2}" y="{y + cell_height/2}" text-anchor="middle" fill="red">Error loading file</text>\n\n'
+            # Add error placeholder without borders
+            svg_content += f'  <rect x="{x}" y="{y}" width="{cell_width}" height="{cell_height}" fill="#ffcccc"/>\n'
+            svg_content += f'  <text x="{x + cell_width/2}" y="{y + cell_height/2}" text-anchor="middle" fill="red">Error</text>\n\n'
 
     svg_content += '</svg>'
 
@@ -185,7 +175,7 @@ def main():
         print(f"  {i}. {f}")
 
     # Create the grid (2 rows x 4 columns)
-    create_svg_grid(svg_files, output_file, rows=2, cols=4)
+    create_svg_grid(svg_files, output_file, rows=2, cols=4, cell_width=200, cell_height=200, padding=0)
 
     print(f"\n✓ Done! Open {output_file} to view the result.")
 
